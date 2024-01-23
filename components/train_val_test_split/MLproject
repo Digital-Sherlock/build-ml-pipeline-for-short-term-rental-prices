@@ -1,5 +1,5 @@
 name: download_file
-conda_env: python_env.yml
+conda_env:conda.yml
 
 entry_points:
   main:
