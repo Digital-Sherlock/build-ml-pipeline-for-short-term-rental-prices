@@ -1,4 +1,4 @@
-name: download_file
+name: train_random_forest
 conda_env: conda.yml
 
 entry_points:
@@ -31,7 +31,7 @@ entry_points:
       max_tfidf_features:
         description: Maximum number of words to consider for the TFIDF
         type: string
-
+        
       output_artifact:
         description: Name for the output artifact
         type: string

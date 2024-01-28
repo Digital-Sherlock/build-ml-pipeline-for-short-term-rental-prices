@@ -1,6 +1,6 @@
 name: eda
-conda_env: conda.yml
+python_env: python_env.yaml
 
 entry_points:
   main:
-    command: jupyter notebook
+    command: jupyter-lab --allow-root --ip="0.0.0.0" 2>&1

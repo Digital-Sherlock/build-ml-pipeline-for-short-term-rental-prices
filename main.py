@@ -1,5 +1,12 @@
-import json
+'''
+The main.py file ties the mlflow pipeline together by
+executing each individual step of the pipeline.
+Depending on the stage of the development the steps
+can be executed individually or combined enabling
+experimentation during development process.
+'''
 
+import json
 import mlflow
 import tempfile
 import os
@@ -7,24 +14,38 @@ import wandb
 import hydra
 from omegaconf import DictConfig
 
+
+# Pipeline execution steps
 _steps = [
     "download",
     "basic_cleaning",
     "data_check",
     "data_split",
     "train_random_forest",
-    # NOTE: We do not include this in the steps so it is not run by mistake.
-    # You first need to promote a model export to "prod" before you can run this,
-    # then you need to run this step explicitly
-#    "test_regression_model"
+
+    # USE WITH CAUTION:
+    # uncomment this step once model
+    # is ready for production
+    "test_regression_model"
 ]
 
 
-# This automatically reads in the configuration
+# Reading the hydra configuration file (config.yml) 
 @hydra.main(config_name='config')
 def go(config: DictConfig):
+    '''
+    This function controls mlflow pipeline components
+    execution based on the steps supplied by config.yml
+    or via CLI.
+    
+    - Input:
+        - config: (YAML) hydra config file
+    - Output:
+        - None
+    '''
 
-    # Setup the wandb experiment. All runs will be grouped under this name
+    # Setting up the W&B experiment. All runs will be grouped under this
+    # project and experiment name 
     os.environ["WANDB_PROJECT"] = config["main"]["project_name"]
     os.environ["WANDB_RUN_GROUP"] = config["main"]["experiment_name"]
 
@@ -32,15 +53,19 @@ def go(config: DictConfig):
     steps_par = config['main']['steps']
     active_steps = steps_par.split(",") if steps_par != "all" else _steps
 
+    root_directory = hydra.utils.get_original_cwd()
+
     # Move to a temporary directory
     with tempfile.TemporaryDirectory() as tmp_dir:
 
         if "download" in active_steps:
             # Download file and load in W&B
             _ = mlflow.run(
-                f"{config['main']['components_repository']}/get_data",
-                "main",
+                # MLproject location on github
+                uri=f"{config['main']['components_repository']}/get_data",
+                # branch
                 version='main',
+                entry_point="main",
                 parameters={
                     "sample": config["etl"]["sample"],
                     "artifact_name": "sample.csv",
@@ -50,46 +75,80 @@ def go(config: DictConfig):
             )
 
         if "basic_cleaning" in active_steps:
-            ##################
-            # Implement here #
-            ##################
-            pass
+            # Perform basic cleaning and upload
+            # a cleaned dataset to W&B
+            _ = mlflow.run(
+                uri=os.path.join(root_directory, "src", "basic_cleaning"),
+                entry_point="main",
+                parameters={
+                    "input_artifact": "sample.csv:v0",
+                    "output_artifact": "clean_sample.csv",
+                    "min_price": config["etl"]["min_price"],
+                    "max_price": config["etl"]["max_price"]
+                }
+            )
 
         if "data_check" in active_steps:
-            ##################
-            # Implement here #
-            ##################
-            pass
+            # Basic data checks performed via pytest;
+            # logs uploaded to W&B
+            _ = mlflow.run(
+                uri=os.path.join(root_directory, "src", "data_check"),
+                entry_point="main",
+                parameters={
+                    "csv": "clean_sample.csv:v1",
+                    "ref": "clean_sample.csv:ref",
+                    "kl_threshold": config["data_check"]["kl_threshold"],
+                    "min_price": config["etl"]["min_price"],
+                    "max_price": config["etl"]["max_price"]                                    
+                }
+            )
 
         if "data_split" in active_steps:
-            ##################
-            # Implement here #
-            ##################
-            pass
+            # Trainval/test dataset split
+            _ = mlflow.run(
+                uri=f"{config['main']['components_repository_fork']}/train_val_test_split",
+                version="main",
+                entry_point="main",
+                parameters={
+                    "input": "clean_sample.csv:v1",
+                    "test_size": config['modeling']['test_size'],
+                    "stratify_by": config['modeling']["stratify_by"]
+                }
+            )
 
         if "train_random_forest" in active_steps:
+            # RF training
 
-            # NOTE: we need to serialize the random forest configuration into JSON
+            # Serializing the random forest configuration into JSON
             rf_config = os.path.abspath("rf_config.json")
             with open(rf_config, "w+") as fp:
-                json.dump(dict(config["modeling"]["random_forest"].items()), fp)  # DO NOT TOUCH
+                json.dump(dict(config["modeling"]["random_forest"].items()), fp)
 
-            # NOTE: use the rf_config we just created as the rf_config parameter for the train_random_forest
-            # step
+            _ = mlflow.run(
+                uri=os.path.join(root_directory, 'src', 'train_random_forest'),
+                entry_point = 'main',
+                parameters={
+                    "trainval_artifact": "trainval_data.csv:v0",
+                    "val_size": config["modeling"]["val_size"],
+                    "stratify_by": config["modeling"]["stratify_by"],
+                    "rf_config": rf_config,
+                    "max_tfidf_features": config["modeling"]["max_tfidf_features"],
+                    "output_artifact": "random_forest_export"
+                }
+            )
 
-            ##################
-            # Implement here #
-            ##################
-
-            pass
 
         if "test_regression_model" in active_steps:
-
-            ##################
-            # Implement here #
-            ##################
-
-            pass
+            # prod model testing
+            _ = mlflow.run(
+                uri=f"{config['main']['components_repository_fork']}/test_regression_model",
+                version="main",
+                entry_point="main",
+                parameters={
+                    "mlflow_model": "random_forest_export:prod",
+                    "test_dataset": "test_data.csv:v0"
+                }
+            )
 
 
 if __name__ == "__main__":
