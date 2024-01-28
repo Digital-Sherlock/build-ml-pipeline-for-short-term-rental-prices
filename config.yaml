@@ -22,7 +22,7 @@ modeling:
   stratify_by: "neighbourhood_group"
   # Maximum number of features to consider for the TFIDF applied to the title of the
   # insertion (the column called "name")
-  max_tfidf_features: 5
+  max_tfidf_features: 30
   # RandomForestRegressor training parameters
   random_forest:
     n_estimators: 100
@@ -31,5 +31,5 @@ modeling:
     min_samples_leaf: 3
     n_jobs: -1
     criterion: squared_error
-    max_features: 0.5
+    max_features: 0.33
     oob_score: true
